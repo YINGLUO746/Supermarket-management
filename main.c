@@ -21,22 +21,24 @@ struct item_shop {//购物车类型
 struct item goods[NUM];
 struct item_shop* car;
 
-int menu()//开始菜单
+//开始菜单
+int menu()
 {
 	int select;
-	printf("请选择操作（数字1——5）\n");
+	printf("请选择操作（数字1——6）\n");
 	printf("1.建立库存信息\n");
-	printf("2.显示库存信息\n");
-	printf("3.购物车\n");
-	printf("4.结算\n");
-	printf("5.退出\n");
+	printf("2.下架商品\n");
+	printf("3.显示库存信息\n");
+	printf("4.购物车\n");
+	printf("5.结算\n");
+	printf("6.退出\n");
 	printf("请选择对应数字\n");//初始模板
 	printf("您的选择是:");
 
 	while (1)
 	{
 		scanf("%d", &select);//读取选择的数字
-		if (select < 1 || select>5)
+		if (select < 1 || select>6)
 		{
 			printf("输入了错误的数字，请重新输入：\n");
 		}
@@ -80,10 +82,10 @@ void establish() {
 	}
 
 	//判断文件是否能创建
-	if ((fp = fopen("goods", "w")) == NULL)
+	if ((fp = fopen("goods", "wb")) == NULL)
 	{
 		printf("创建文件失败!\n");
-		return 0;
+		return;
 	}
 	//把goods数组的内容写入文件
 	fwrite(&goods, sizeof(struct item), NUM, fp);
@@ -96,13 +98,33 @@ void establish() {
 void dis_all()
 {
 	system("cls");//清除前面的内容
-	FILE* fp;
-	fp = fopen("goods", "r");
-	for (int i = 0; (fread(goods + i, sizeof(struct item), 1, fp)) != 0; i++)
+	FILE* fp = fopen("goods", "rb");
+	if (fp == NULL)
 	{
-		printf("——————————————————————————————————————\n");
-		printf("编号\t商品\t价格\t数量\n");
-		printf("%s%8s%8.2f%7d\n", goods[i].id, goods[i].brand, goods[i].out_price, goods[i].num);
+		printf("无法打开商品文件或文件不存在。\n");
+		return;
+	}
+
+	printf("——————————————————————————————————————————————————————\n");
+	printf("%-9s%-8s%7s%8s%8s\n", "编号", "商品", "价格", "数量", "状态");
+	printf("——————————————————————————————————————————————————————\n");
+
+	int i = 0;
+	while (fread(&goods[i], sizeof(struct item), 1, fp) == 1 && i < NUM)
+	{
+		if (goods[i].num == 0)
+		{
+			printf("%-8s %-7s %8.2f %6d %8s\n", goods[i].id, goods[i].brand, goods[i].out_price, 0, "已售空");
+		}
+		else if (goods[i].num == -1)
+		{
+			printf("%-8s %-7s %8.2f %6d %8s\n", goods[i].id, goods[i].brand, goods[i].out_price, 0, "已下架");
+		}
+		else
+		{
+			printf("%-8s %-7s %8.2f %6d %8s\n", goods[i].id, goods[i].brand, goods[i].out_price, goods[i].num, "在售");
+		}
+		i++;
 	}
 	fclose(fp);
 }
@@ -144,11 +166,14 @@ void display()
 		printf("购物车为空！\n");
 		return;
 	}
+
+	printf("————————————————————————————————————————————\n");
+	printf("%-9s%-8s%7s%8s\n", "编号", "商品", "单价", "数量");
+	printf("————————————————————————————————————————————\n");
+
 	while (p != NULL)
 	{
-		printf("——————————————————————————————————————\n");
-		printf("编号\t商品\t价格\t数量\n");
-		printf("%s%8s%8.2f%7d\n", p->wanted.id,p->wanted.brand,p->wanted.out_price,p->amount);
+		printf("%-9s%-8s%7.2f%8d\n", p->wanted.id, p->wanted.brand, p->wanted.out_price, p->amount);
 		p = p->next;//跳转下一个节点
 	}
 }
@@ -266,51 +291,145 @@ void shop_car()
 //结算
 void count_up()
 {
-	float total = 0, pay;
-	struct item_shop* p;
-	FILE* fp;
-	if (car == NULL)
-	{
-		printf("当前购物车为空\n");
-		return;
-	}
-	printf("购物清单:\n");
-	display();
-	if ((fp = fopen("goods", "r"))== NULL)
-	{
-		printf("系统繁忙，请稍后重试\n");
-		return;
-	}
-	for (int i = 0; (fread(goods + i, sizeof(struct item), 1, fp))!=0;i++)
-	{
-		fclose(fp);
-		p = car;
+    float total = 0.0f, pay;
+    struct item_shop* p;
+    FILE* fp;
+    int count = 0;
 
-		while(p!=NULL)
-		{
-			total += p->wanted.out_price * p->amount;
-			for (int i= 0; strcmp(goods[i].id, p->wanted.id) != 0; i++)
-			{
-				goods[i].num -= p->amount;
-				break;
-			}
-				p = p->next;
-		}
-		printf("总计：%7.2f", total);
-		printf("\n输入支付金额：");
-		scanf("%f", &pay);
-		printf("实际支付金额：%7.2f\t\t找零:%7.2f\n",pay,pay-total);
-		printf("——————————————————————————————————————\n");
-		if ((fp = fopen("goods", "w")) == NULL)
-		{
-			printf("支付失败，请稍后重试\n");
-			return;
-		}
-		fwrite(goods, sizeof(struct item), NUM, fp);
-		fclose(fp);
-	}
+    if (car == NULL)
+    {
+        printf("当前购物车为空\n");
+        return;
+    }
+
+    printf("==========购物清单==========:\n");
+    display();
+
+    /* 以二进制模式读取全部商品到 goods 数组 */
+    if ((fp = fopen("goods", "rb")) == NULL)
+    {
+        printf("系统繁忙，请稍后重试\n");
+        return;
+    }
+    for (count = 0; count < NUM && fread(&goods[count], sizeof(struct item), 1, fp) == 1; count++);
+    fclose(fp);
+
+    /* 计算总价并在内存中更新库存 */
+    p = car;
+    while (p != NULL)
+    {
+        total += p->wanted.out_price * p->amount;
+
+        /* 在 goods 中查找匹配的商品并扣减库存 */
+        int found = 0;
+        for (int j = 0; j < count; j++)
+        {
+            if (strcmp(goods[j].id, p->wanted.id) == 0)
+            {
+                goods[j].num -= p->amount;
+                if (goods[j].num < 0)
+                {
+                    /* 若库存被扣成负数，可按需要处理，这里将其置为0并提示 */
+                    goods[j].num = 0;
+                }
+                found = 1;
+                break;
+            }
+        }
+        if (!found)
+        {
+            /* 未找到对应商品时可选择提示或忽略，这里简单提示下 */
+            printf("警告：未在库存中找到商品 %s\n", p->wanted.id);
+        }
+
+        p = p->next;
+    }
+
+    /* 显示总计并收款 */
+    printf("总计：%7.2f\n", total);
+    printf("输入支付金额：");
+    if (scanf("%f", &pay) != 1)
+    {
+        printf("输入金额无效，结算取消\n");
+        return;
+    }
+    if (pay < total)
+    {
+        printf("支付金额不足，结算取消\n");
+        return;
+    }
+    printf("实际支付金额：%7.2f\t\t找零:%7.2f\n", pay, pay - total);
+    printf("——————————————————————————————————————\n");
+
+    /* 以二进制模式写回更新后的商品数组 */
+    if ((fp = fopen("goods", "wb")) == NULL)
+    {
+        printf("支付失败，无法保存库存，请稍后重试\n");
+        return;
+    }
+    fwrite(goods, sizeof(struct item), NUM, fp);
+    fclose(fp);
+
+    /* 释放购物车链表并清空指针 */
+    p = car;
+    while (p != NULL)
+    {
+        struct item_shop* next = p->next;
+        free(p);
+        p = next;
+    }
+    car = NULL;
+
+    printf("支付成功！欢迎下次光临！\n");
 }
 
+//下架商品
+void remove_item()
+{
+	FILE* fp;
+	char key[20];
+	char choice;
+	int count = 0;
+
+	//读取库存
+	if ((fp = fopen("goods", "rb")) == NULL)
+	{
+		printf("系统加载失败！！\n");
+		return;
+	}
+	for(count=0;count<NUM&&fread(&goods[count],sizeof(struct item),1,fp)!=0;count++);
+	{
+		fclose(fp);
+	}
+	printf("请输入要下架的商品名称或编号:\n");
+	fflush(stdin);
+	scanf("%s", key);
+
+	for (int i = 0; i < count; i++)
+	{
+		if (strcmp(goods[i].id, key) == 0 || strcmp(goods[i].brand, key) == 0)
+		{
+			printf("已经找到所选择的商品\n");
+			printf("确认下架 %s %s? (Y / N):", goods[i].id, goods[i].brand);
+			scanf(" %c", &choice);
+			if (choice == 'Y' || choice == 'y')
+			{
+				goods[i].num = -1;//将数量置为-1表示下架
+				fp = fopen("goods", "wb");
+				fwrite(goods, sizeof(struct item), NUM, fp);
+				fclose(fp);
+				printf("下架成功！\n");
+			}
+			else
+			{
+				printf("下架取消！\n");
+				
+			}
+			return;
+		}
+	}
+	printf("未找到所选择的商品\n");
+}	
 
 int main()
 {
@@ -324,23 +443,29 @@ int main()
 		case 1://printf("1.建立库存信息\n");
 		{
 			establish();
-		} break;	
-		case 2://printf("2.显示库存信息\n");
+		} 
+		break;	
+		case 2://printf("2.下架商品\n");
+		{
+			remove_item();
+		}
+		break;
+		case 3://printf("2.显示库存信息\n");
 		{
 			dis_all();
 		}
 			break;
-		case 3://printf("3.购物车\n");
+		case 4://printf("3.购物车\n");
 		{
 			shop_car();
 		}
 			break;
-			case 4://printf("4.结算\n");
+		case 5://printf("4.结算\n");
 			{
 				count_up();
 			}
 				break;
-			case 5://printf("5.退出\n");
+		case 6://printf("5.退出\n");
 			{
 				system("cls");
 				printf("**************************************\n");
